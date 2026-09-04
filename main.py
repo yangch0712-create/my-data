@@ -112,14 +112,14 @@ try:
     
     st.divider()
     
-    # 3. 원본 데이터 요약 통계 섹션 (지점 포함 및 행/열 바꿈)
+    # 3. 원본 데이터 요약 통계 섹션 (행: 통계지표 / 열: 지점, 기온변수)
     st.subheader("📋 원본 데이터 요약 통계 (Summary Statistics)")
-    st.write("지점 및 기온 항목별 요약 통계표입니다.")
+    st.write("통계지표가 행(Row)에, 지점 및 기온 변수가 열(Column)에 위치한 요약 통계표입니다.")
     
-    # 지점(범주형)과 기온(수치형)을 모두 포함하여 기술통계량 생성
-    desc = raw_df[['지점', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe(include='all')
+    # 지점 및 기온 변수들의 요약 통계 집계
+    summary_df = raw_df[['지점', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe(include='all')
     
-    # 통계 용어 한글로 변경
+    # 통계 항목명 한글화 (행 인덱스 이름 변경)
     rename_dict = {
         'count': '개수(일수)',
         'unique': '고유값 수',
@@ -133,13 +133,11 @@ try:
         '75%': '75% (3분위)',
         'max': '최대'
     }
-    desc.index = [rename_dict.get(idx, idx) for idx in desc.index]
+    summary_df.index = [rename_dict.get(idx, idx) for idx in summary_df.index]
     
-    # 행과 열을 서로 바꿈(전치)
-    summary_transposed = desc.T
-    
+    # 화면 출력 (행: 개수, 평균, 최소 등 / 열: 지점, 평균기온, 최저기온, 최고기온)
     st.dataframe(
-        summary_transposed,
+        summary_df,
         use_container_width=True
     )
     
