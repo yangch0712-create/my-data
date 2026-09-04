@@ -16,32 +16,33 @@ st.write("기상청 서울 관측 데이터(`seoul.csv`)를 바탕으로 한 기
 @st.cache_data
 def load_data():
     url = "https://raw.githubusercontent.com/greatsong/modudata/main/data/seoul.csv"
-    # 인코딩 예외 처리 (cp949 / utf-8)
+    # 인코딩 대응 (cp949, utf-8)
     try:
         df = pd.read_csv(url, encoding='cp949')
     except Exception:
         df = pd.read_csv(url, encoding='utf-8')
     
-    # 열 이름 공백 제거
+    # 열 이름 공백 제거 및 정리
     df.columns = df.columns.str.strip()
     
-    # 날짜 처리 및 연도 추출
+    # 날짜 컬럼을 datetime 형식으로 변환
     df['날짜'] = pd.to_datetime(df['날짜'])
     df['연도'] = df['날짜'].dt.year
     
-    # 주요 기온 컬럼 매핑
+    # 지점 및 기온 컬럼 파악
+    station_col = [c for c in df.columns if '지점' in c][0]
     avg_col = [c for c in df.columns if '평균' in c][0]
     min_col = [c for c in df.columns if '최저' in c][0]
     max_col = [c for c in df.columns if '최고' in c][0]
     
-    # 수치형 데이터 변환
+    # 숫자형 변환
     df[avg_col] = pd.to_numeric(df[avg_col], errors='coerce')
     df[min_col] = pd.to_numeric(df[min_col], errors='coerce')
     df[max_col] = pd.to_numeric(df[max_col], errors='coerce')
     
-    # 컬럼명 정제
-    df_clean = df[['날짜', '연도', avg_col, min_col, max_col]].copy()
-    df_clean.columns = ['날짜', '연도', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']
+    # 컬럼명 표준화
+    df_clean = df[['날짜', '연도', station_col, avg_col, min_col, max_col]].copy()
+    df_clean.columns = ['날짜', '연도', '지점', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']
     
     # 연도별 평균 집계
     yearly_df = df_clean.groupby('연도').agg(
@@ -51,7 +52,7 @@ def load_data():
         관측일수=('평균기온(℃)', 'count')
     ).reset_index()
     
-    # 관측 일수가 충분한 연도만 필터링 (300일 이상)
+    # 1년 데이터가 300일 이상 있는 연도만 사용 (데이터 신뢰성)
     yearly_df = yearly_df[yearly_df['관측일수'] >= 300].copy()
     
     # 10년 이동평균선 계산
@@ -64,7 +65,7 @@ try:
     with st.spinner("데이터를 불러오는 중입니다..."):
         raw_df, yearly_df = load_data()
     
-    # 1. 주요 요약 지표 (Metrics)
+    # 1. 핵심 지표 (KPI Metrics) Display
     min_year = int(yearly_df['연도'].min())
     max_year = int(yearly_df['연도'].max())
     first_avg = yearly_df.iloc[0]['연평균기온']
@@ -79,7 +80,7 @@ try:
     
     st.divider()
     
-    # 2. 기온 변화 그래프
+    # 2. 메인 기온 변화 그래프
     st.subheader("📈 연도별 평균 기온 추이 및 10년 이동평균선")
     
     fig = px.line(
@@ -111,35 +112,63 @@ try:
     
     st.divider()
     
-    # 3. 원본 데이터 요약 통계 섹션 (개수·평균·최소·최대 등)
-    st.subheader("📋 원본 데이터 요약 통계 (Daily Summary)")
-    st.write("전체 일별 관측 데이터에 대한 기술통계량입니다.")
+    # 3. 요약 통계 섹션 (기온 통계 & 지점 통계)
+    st.subheader("📋 원본 데이터 요약 통계 (Summary Statistics)")
     
-    stats_df = raw_df[['평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe().T
-    stats_df = stats_df.rename(columns={
-        'count': '개수(일수)',
-        'mean': '평균',
-        'std': '표준편차',
-        'min': '최소',
-        '25%': '25% (1분위)',
-        '50%': '중앙값 (50%)',
-        '75%': '75% (3분위)',
-        'max': '최대'
-    })
+    tab1, tab2 = st.tabs(["🌡️ 기온 데이터 통계", "📍 지점(Station) 통계"])
     
-    st.dataframe(
-        stats_df.style.format({
-            '개수(일수)': '{:,.0f}',
-            '평균': '{:.2f} ℃',
-            '표준편차': '{:.2f}',
-            '최소': '{:.1f} ℃',
-            '25% (1분위)': '{:.1f} ℃',
-            '중앙값 (50%)': '{:.1f} ℃',
-            '75% (3분위)': '{:.1f} ℃',
-            '최대': '{:.1f} ℃'
-        }),
-        use_container_width=True
-    )
+    with tab1:
+        st.write("전체 일별 관측 데이터에 대한 기온 기술통계량입니다.")
+        stats_df = raw_df[['평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe().T
+        stats_df = stats_df.rename(columns={
+            'count': '개수(일수)',
+            'mean': '평균',
+            'std': '표준편차',
+            'min': '최소',
+            '25%': '25% (1분위)',
+            '50%': '중앙값 (50%)',
+            '75%': '75% (3분위)',
+            'max': '최대'
+        })
+        
+        st.dataframe(
+            stats_df.style.format({
+                '개수(일수)': '{:,.0f}',
+                '평균': '{:.2f} ℃',
+                '표준편차': '{:.2f}',
+                '최소': '{:.1f} ℃',
+                '25% (1분위)': '{:.1f} ℃',
+                '중앙값 (50%)': '{:.1f} ℃',
+                '75% (3분위)': '{:.1f} ℃',
+                '최대': '{:.1f} ℃'
+            }),
+            use_container_width=True
+        )
+        
+    with tab2:
+        st.write("관측 지점별 데이터 수 및 관측 기간 요약입니다.")
+        # 지점별 요약 통계 집계
+        station_summary = raw_df.groupby('지점').agg(
+            총관측일수=('날짜', 'count'),
+            최초관측일=('날짜', 'min'),
+            최종관측일=('날짜', 'max'),
+            평균기온=('평균기온(℃)', 'mean'),
+            최저기온극값=('최저기온(℃)', 'min'),
+            최고기온극값=('최고기온(℃)', 'max')
+        ).reset_index()
+        
+        station_summary['최초관측일'] = station_summary['최초관측일'].dt.strftime('%Y-%m-%d')
+        station_summary['최종관측일'] = station_summary['최종관측일'].dt.strftime('%Y-%m-%d')
+        
+        st.dataframe(
+            station_summary.style.format({
+                '총관측일수': '{:,.0f} 일',
+                '평균기온': '{:.2f} ℃',
+                '최저기온극값': '{:.1f} ℃',
+                '최고기온극값': '{:.1f} ℃'
+            }),
+            use_container_width=True
+        )
     
     # 4. 상세 연도별 집계 데이터 보기
     with st.expander("📊 연도별 집계 데이터 보기 (Yearly Summary)"):
