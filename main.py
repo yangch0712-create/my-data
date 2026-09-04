@@ -16,31 +16,31 @@ st.write("기상청 서울 관측 데이터(`seoul.csv`)를 바탕으로 한 기
 @st.cache_data
 def load_data():
     url = "https://raw.githubusercontent.com/greatsong/modudata/main/data/seoul.csv"
-    # 인코딩 대응 (cp949, utf-8)
+    # 인코딩 예외 처리 (cp949 / utf-8)
     try:
         df = pd.read_csv(url, encoding='cp949')
     except Exception:
         df = pd.read_csv(url, encoding='utf-8')
     
-    # 열 이름 공백 제거 및 정리
+    # 열 이름 공백 제거
     df.columns = df.columns.str.strip()
     
-    # 날짜 컬럼을 datetime 형식으로 변환
+    # 날짜 처리 및 연도 추출
     df['날짜'] = pd.to_datetime(df['날짜'])
     df['연도'] = df['날짜'].dt.year
     
-    # 지점 및 기온 컬럼 파악
+    # 지점 및 기온 관련 컬럼 매핑
     station_col = [c for c in df.columns if '지점' in c][0]
     avg_col = [c for c in df.columns if '평균' in c][0]
     min_col = [c for c in df.columns if '최저' in c][0]
     max_col = [c for c in df.columns if '최고' in c][0]
     
-    # 숫자형 변환
+    # 수치형 데이터 변환
     df[avg_col] = pd.to_numeric(df[avg_col], errors='coerce')
     df[min_col] = pd.to_numeric(df[min_col], errors='coerce')
     df[max_col] = pd.to_numeric(df[max_col], errors='coerce')
     
-    # 컬럼명 표준화
+    # 컬럼명 정제
     df_clean = df[['날짜', '연도', station_col, avg_col, min_col, max_col]].copy()
     df_clean.columns = ['날짜', '연도', '지점', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']
     
@@ -52,7 +52,7 @@ def load_data():
         관측일수=('평균기온(℃)', 'count')
     ).reset_index()
     
-    # 1년 데이터가 300일 이상 있는 연도만 사용 (데이터 신뢰성)
+    # 관측 일수가 충분한 연도만 필터링 (300일 이상)
     yearly_df = yearly_df[yearly_df['관측일수'] >= 300].copy()
     
     # 10년 이동평균선 계산
@@ -80,7 +80,7 @@ try:
     
     st.divider()
     
-    # 2. 메인 기온 변화 그래프
+    # 2. 기온 변화 그래프
     st.subheader("📈 연도별 평균 기온 추이 및 10년 이동평균선")
     
     fig = px.line(
@@ -112,63 +112,36 @@ try:
     
     st.divider()
     
-    # 3. 요약 통계 섹션 (기온 통계 & 지점 통계)
+    # 3. 원본 데이터 요약 통계 섹션 (지점 포함 및 행/열 바꿈)
     st.subheader("📋 원본 데이터 요약 통계 (Summary Statistics)")
+    st.write("지점 및 기온 항목별 요약 통계표입니다.")
     
-    tab1, tab2 = st.tabs(["🌡️ 기온 데이터 통계", "📍 지점(Station) 통계"])
+    # 지점(범주형)과 기온(수치형)을 모두 포함하여 기술통계량 생성
+    desc = raw_df[['지점', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe(include='all')
     
-    with tab1:
-        st.write("전체 일별 관측 데이터에 대한 기온 기술통계량입니다.")
-        stats_df = raw_df[['평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].describe().T
-        stats_df = stats_df.rename(columns={
-            'count': '개수(일수)',
-            'mean': '평균',
-            'std': '표준편차',
-            'min': '최소',
-            '25%': '25% (1분위)',
-            '50%': '중앙값 (50%)',
-            '75%': '75% (3분위)',
-            'max': '최대'
-        })
-        
-        st.dataframe(
-            stats_df.style.format({
-                '개수(일수)': '{:,.0f}',
-                '평균': '{:.2f} ℃',
-                '표준편차': '{:.2f}',
-                '최소': '{:.1f} ℃',
-                '25% (1분위)': '{:.1f} ℃',
-                '중앙값 (50%)': '{:.1f} ℃',
-                '75% (3분위)': '{:.1f} ℃',
-                '최대': '{:.1f} ℃'
-            }),
-            use_container_width=True
-        )
-        
-    with tab2:
-        st.write("관측 지점별 데이터 수 및 관측 기간 요약입니다.")
-        # 지점별 요약 통계 집계
-        station_summary = raw_df.groupby('지점').agg(
-            총관측일수=('날짜', 'count'),
-            최초관측일=('날짜', 'min'),
-            최종관측일=('날짜', 'max'),
-            평균기온=('평균기온(℃)', 'mean'),
-            최저기온극값=('최저기온(℃)', 'min'),
-            최고기온극값=('최고기온(℃)', 'max')
-        ).reset_index()
-        
-        station_summary['최초관측일'] = station_summary['최초관측일'].dt.strftime('%Y-%m-%d')
-        station_summary['최종관측일'] = station_summary['최종관측일'].dt.strftime('%Y-%m-%d')
-        
-        st.dataframe(
-            station_summary.style.format({
-                '총관측일수': '{:,.0f} 일',
-                '평균기온': '{:.2f} ℃',
-                '최저기온극값': '{:.1f} ℃',
-                '최고기온극값': '{:.1f} ℃'
-            }),
-            use_container_width=True
-        )
+    # 통계 용어 한글로 변경
+    rename_dict = {
+        'count': '개수(일수)',
+        'unique': '고유값 수',
+        'top': '최다 관측 지점',
+        'freq': '최다 관측 지점 일수',
+        'mean': '평균',
+        'std': '표준편차',
+        'min': '최소',
+        '25%': '25% (1분위)',
+        '50%': '중앙값 (50%)',
+        '75%': '75% (3분위)',
+        'max': '최대'
+    }
+    desc.index = [rename_dict.get(idx, idx) for idx in desc.index]
+    
+    # 행과 열을 서로 바꿈(전치)
+    summary_transposed = desc.T
+    
+    st.dataframe(
+        summary_transposed,
+        use_container_width=True
+    )
     
     # 4. 상세 연도별 집계 데이터 보기
     with st.expander("📊 연도별 집계 데이터 보기 (Yearly Summary)"):
